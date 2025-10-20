@@ -1,0 +1,17 @@
+OpenMM Water Density Simulation Analysis
+==================================================
+
+Density Analysis:
+Number of molecules: 45
+Average volume: 1.355120 ± 0.056360 nm³
+Calculated density: 0.993410 g/cm³
+Relative error: 0.659%
+
+Volume Statistics:
+Mean: 1.355120 nm³
+Std Dev: 0.056360 nm³
+Min: 1.222182 nm³
+Max: 1.502673 nm³
+Range: 0.280491 nm³
+CV: 4.159%
+Samples: 500
