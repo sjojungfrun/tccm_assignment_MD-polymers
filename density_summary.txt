@@ -1,5 +1,5 @@
-Average volume: 1.3692 ± 0.0480 nm³
-Average density: 0.9832 g/cm³
+Average volume: 1.3694 ± 0.0550 nm³
+Average density: 0.9830 g/cm³
 Expected density (experimental): 1.0 g/cm³
-Relative error: 1.68%
+Relative error: 1.70%
 ==================================================

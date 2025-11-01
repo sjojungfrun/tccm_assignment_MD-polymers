@@ -5,6 +5,7 @@ This module contains functions for analyzing simulation results,
 including density calculations, statistical analysis, and result reporting.
 """
 
+import json
 import numpy as np
 from openmm.unit import *
 from openmm import unit
@@ -221,8 +222,62 @@ def save_analysis_to_file(analysis_results, volume_stats, filename='analysis_res
     return filename
 
 
+def save_analysis_to_json(analysis_results, volume_stats, filename='analysis_results.json'):
+    """
+    Save analysis results to a JSON file.
+    
+    Parameters:
+    -----------
+    analysis_results : dict
+        Results from calculate_water_density function
+    volume_stats : dict
+        Results from analyze_volume_fluctuations function
+    filename : str
+        Output filename
+        
+    Returns:
+    --------
+    str
+        Path to the saved file
+    """
+    def _to_serializable(value):
+        if isinstance(value, np.generic):
+            return value.item()
+        return value
+
+    density_value = analysis_results.get('density')
+    rel_error = calculate_density_error(density_value) if density_value is not None else None
+
+    payload = {
+        'density_analysis': {
+            'n_molecules': _to_serializable(analysis_results.get('n_molecules')),
+            'avg_volume_nm3': _to_serializable(analysis_results.get('avg_volume_nm3')),
+            'std_volume_nm3': _to_serializable(analysis_results.get('std_volume_nm3')),
+            'avg_volume_cm3': _to_serializable(analysis_results.get('avg_volume_cm3')),
+            'total_mass_g': _to_serializable(analysis_results.get('total_mass_g')),
+            'density_g_per_cm3': _to_serializable(density_value),
+            'relative_error_percent': _to_serializable(rel_error)
+        },
+        'volume_statistics': {
+            'mean_nm3': _to_serializable(volume_stats.get('mean')),
+            'std_nm3': _to_serializable(volume_stats.get('std')),
+            'min_nm3': _to_serializable(volume_stats.get('min')),
+            'max_nm3': _to_serializable(volume_stats.get('max')),
+            'range_nm3': _to_serializable(volume_stats.get('range')),
+            'coefficient_of_variation_percent': _to_serializable(volume_stats.get('cv')),
+            'n_samples': _to_serializable(volume_stats.get('n_samples'))
+        }
+    }
+    
+    with open(filename, 'w', encoding='utf-8') as f:
+        json.dump(payload, f, indent=2)
+    
+    print(f"Analysis results saved to '{filename}'")
+    return filename
+
+
 def complete_analysis(volumes, n_molecules, reference_density=1.0, 
-                     save_to_file=True, output_file='analysis_results.txt'):
+                     save_to_file=True, output_file='analysis_results.txt', json_file='analysis_results.json'):
     """
     Perform complete analysis of simulation results.
     
@@ -238,6 +293,8 @@ def complete_analysis(volumes, n_molecules, reference_density=1.0,
         Whether to save results to file
     output_file : str
         Output filename
+    json_file : str
+        Output JSON filename
         
     Returns:
     --------
@@ -257,6 +314,7 @@ def complete_analysis(volumes, n_molecules, reference_density=1.0,
     # Save to file if requested
     if save_to_file:
         save_analysis_to_file(density_results, volume_stats, output_file)
+        save_analysis_to_json(density_results, volume_stats, json_file)
     
     # Calculate compressibility
     compressibility = calculate_compressibility(volumes)
