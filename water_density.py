@@ -1,8 +1,3 @@
-"""
-OpenMM script to create a water box, equilibrate it, and calculate density
-Using AMBER force field (TIP3P water model) - Modular Version
-"""
-
 from openmm.app import *
 from openmm import *
 from openmm.unit import *
@@ -11,18 +6,20 @@ import numpy as np
 
 # Import our custom modules
 from simulation_setup import setup_simulation
-from simulation_runner import run_complete_simulation
+from simulation_runner import minimize_energy, equilibrate_system, run_production_vol, save_final_structure
 from analysis import complete_analysis
 
 # Parameters
 n_waters = 50
 temperature = 300 * kelvin
 pressure = 1 * bar
-nvt_equilibration_steps = 5000
-npt_equilibration_steps = 10000
+#nvt_equilibration_steps = 5000
+npt_equilibration_steps = 1000
 production_steps = 50000
 timestep = 2 * unit.femtoseconds
 cutoff = 0.5 * unit.nanometers
+
+reference_density = 1.0  # g/cm³ for water at room temperature
 
 def main():
     """Main function to run the water density simulation."""
@@ -39,21 +36,38 @@ def main():
     simulation = simulation_components['simulation']
     modeller = simulation_components['modeller']
     
-    # Run complete simulation
-    simulation_results = run_complete_simulation(
-        simulation=simulation,
-        nvt_steps=nvt_equilibration_steps,
-        npt_steps=npt_equilibration_steps,
-        production_steps=production_steps,
+    # Perform first an energy minimization
+    minimize_energy(simulation, max_iterations=500)
+
+    # Perform first system equiliration on NVT ensemble
+    print("Starting NPT equilibration...")
+    equilibrate_system(
+        simulation,
+        total_steps=npt_equilibration_steps,
+        ensemble='npt',
         temperature=temperature,
+        pressure=pressure
+    )
+
+    # Perform production run in NPT ensemble and collect volume data
+    sim_results = run_production_vol(
+        simulation,
+        ensemble='npt',
+        temperature=temperature,
+        pressure=pressure,
+        production_steps=production_steps,
         data_collection_interval=100,
-        output_log='water_output.log',
-        output_pdb='final_water_box.pdb'
+        output_file='water_output.log'
+    )
+    # Save final structure
+    save_final_structure(
+        simulation,
+        output_file='final_water_box.pdb'
     )
     
     # Analyze results
     n_molecules = modeller.topology.getNumResidues()
-    volumes = simulation_results['volumes']
+    volumes = sim_results['volumes']
     
     analysis_results = complete_analysis(
         volumes=volumes,
@@ -62,6 +76,27 @@ def main():
         save_to_file=True,
         output_file='analysis_results.txt'
     )
+
+    density_value = analysis_results['density_results']['density']
+    rel_error = analysis_results['relative_error']
+    compressibility = analysis_results['compressibility']
+
+    print(f"Calculated density: {density_value:.4f} g/cm³")
+    print(f"Relative error vs reference: {rel_error:.2f}%")
+    print(f"Estimated compressibility: {compressibility:.3e} 1/Pa")
+
+    summary_lines = [
+        f"Average volume: {analysis_results['density_results']['avg_volume_nm3']:.4f} ± "
+        f"{analysis_results['density_results']['std_volume_nm3']:.4f} nm³",
+        f"Average density: {density_value:.4f} g/cm³",
+        f"Expected density (experimental): {reference_density:.1f} g/cm³",
+        f"Relative error: {rel_error:.2f}%",
+        "=" * 50,
+    ]
+
+    with open('density_summary.txt', 'w', encoding='utf-8') as summary_file:
+        summary_file.write("\n".join(summary_lines))
+    print("Summary written to 'density_summary.txt'")
     
     return analysis_results
 

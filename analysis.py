@@ -198,7 +198,7 @@ def save_analysis_to_file(analysis_results, volume_stats, filename='analysis_res
     str
         Path to the saved file
     """
-    with open(filename, 'w') as f:
+    with open(filename, 'w', encoding='utf-8') as f:
         f.write("OpenMM Water Density Simulation Analysis\n")
         f.write("="*50 + "\n\n")
         

@@ -1,10 +1,3 @@
-"""
-OpenMM Simulation Runner Module
-
-This module contains functions for running molecular dynamics simulations,
-including energy minimization, equilibration, production runs, and data collection.
-"""
-
 from openmm.app import *
 from openmm import *
 from openmm.unit import *
@@ -24,46 +17,77 @@ def minimize_energy(simulation, max_iterations=100, tolerance=10*unit.kilojoules
         Maximum number of minimization iterations
     tolerance : Quantity
         Energy tolerance for convergence
-        
-    Returns:
-    --------
-    None
     """
     print("\nMinimizing energy...")
     simulation.minimizeEnergy(maxIterations=max_iterations, tolerance=tolerance)
 
 
-def equilibrate_system(simulation, total_steps=5000, temperature=300*unit.kelvin):
+def equilibrate_system(simulation, total_steps, ensemble='npt', 
+                      temperature=300*unit.kelvin, pressure=1*unit.bar):
     """
-    Equilibrate the system with NVT followed by NPT.
+    Equilibrate the system in the specified ensemble.
     
     Parameters:
     -----------
     simulation : Simulation
         OpenMM Simulation object
     total_steps : int
-        Number of steps of simulation
+        Number of equilibration steps
+    ensemble : str
+        Either 'nvt' or 'npt'
     temperature : Quantity
         Target temperature
-        
-    Returns:
-    --------
-    int
-        Total number of equilibration steps performed
+    pressure : Quantity
+        Target pressure (only used for NPT)
     """
-    print(f"Equilibrating for {total_steps} steps...")
+    ensemble = ensemble.lower()
+    print(f"Equilibrating in {ensemble.upper()} ensemble for {total_steps} steps...")
     
-    # Set initial velocities
+    # Set velocities from temperature
     simulation.context.setVelocitiesToTemperature(temperature)
-    
+
+    # Set simulation to proper ensemble
+    switch_ensemble(simulation, ensemble, temperature, pressure)
+
     # Run equilibration
     simulation.step(total_steps)
+    print(f"Equilibration complete: {total_steps} steps")
     
-    return total_steps
+def switch_ensemble(simulation, ensemble='npt', temperature=300*unit.kelvin, pressure=1*unit.bar):
+    # Handle barostat for NPT
+    system = simulation.system
+    barostat_present = False
+    barostat_index = None
+    
+    # Check if barostat exists
+    for index in range(system.getNumForces()):
+        force = system.getForce(index)
+        if isinstance(force, MonteCarloBarostat):
+            barostat_present = True
+            barostat_index = index
+            break
+    
+    if ensemble == 'npt':
+        if not barostat_present:
+            # Add barostat for NPT
+            system.addForce(MonteCarloBarostat(pressure, temperature))
+            simulation.context.reinitialize(preserveState=True)
+            print(f"Added MonteCarloBarostat at {pressure} and {temperature}")
+    elif ensemble == 'nvt':
+        if barostat_present:
+            # Remove barostat for NVT
+            system.removeForce(barostat_index)
+            simulation.context.reinitialize(preserveState=True)
+            print("Removed MonteCarloBarostat for NVT ensemble")
+    else:
+        raise ValueError(f"Invalid ensemble '{ensemble}'. Must be 'nvt' or 'npt'.")
+    
 
 
-def run_production(simulation, production_steps=50000, data_collection_interval=100,
-                  output_file='water_output.log', log_interval=1000):
+def run_production_vol(simulation, ensemble='npt',  
+                      temperature=300*unit.kelvin, pressure=1*unit.bar,
+                      production_steps=50000, data_collection_interval=100,
+                      output_file='simulation_output.log', log_interval=1000):
     """
     Run production simulation and collect volume data.
     
@@ -85,7 +109,7 @@ def run_production(simulation, production_steps=50000, data_collection_interval=
     list
         List of volumes in nm³
     """
-    print(f"Running production for {production_steps} steps...")
+    print(f"\nRunning production for {production_steps} steps...")
     
     # Add reporter for logging
     simulation.reporters.append(StateDataReporter(output_file, log_interval,
@@ -93,10 +117,13 @@ def run_production(simulation, production_steps=50000, data_collection_interval=
     
     volumes = []
     
+    # Set simulation to proper ensemble
+    switch_ensemble(simulation, ensemble, temperature, pressure)
+
     # Collect volume data during production
     for _ in range(production_steps // data_collection_interval):
         simulation.step(data_collection_interval)
-        state = simulation.context.getState()
+        state = simulation.context.getState(enforcePeriodicBox=True)
         box_vectors = state.getPeriodicBoxVectors()
         
         # Calculate volume from box vectors
@@ -104,10 +131,17 @@ def run_production(simulation, production_steps=50000, data_collection_interval=
         volume = a[0] * b[1] * c[2]  # For cubic/orthorhombic box
         volumes.append(volume.value_in_unit(unit.nanometers**3))
     
-    return volumes
+    print(f"Production complete: {production_steps} steps")
+    print(f"Data saved to '{output_file}'")
+
+    return {
+        'volumes': volumes,
+        'production_steps': production_steps,
+        'ensemble': ensemble
+    }
 
 
-def save_final_structure(simulation, output_file='final_water_box.pdb'):
+def save_final_structure(simulation, output_file='final_structure.pdb'):
     """
     Save the final configuration to a PDB file.
     
@@ -129,9 +163,12 @@ def save_final_structure(simulation, output_file='final_water_box.pdb'):
     return output_file
 
 
-def run_complete_simulation(simulation, total_steps=5000, prod_steps=50000, 
-                           temperature=300*unit.kelvin, data_collection_interval=100, 
-                           output_log='water_output.log', output_pdb='final_water_box.pdb'):
+def run_complete_simulation(simulation, equilibration_steps=10000, 
+                           production_steps=50000, ensemble='npt',
+                           temperature=300*unit.kelvin, pressure=1*unit.bar,
+                           data_collection_interval=100,
+                           output_log='simulation_output.log', 
+                           output_pdb='final_structure.pdb'):
     """
     Run a complete simulation including minimization, equilibration, and production.
     
@@ -139,12 +176,16 @@ def run_complete_simulation(simulation, total_steps=5000, prod_steps=50000,
     -----------
     simulation : Simulation
         OpenMM Simulation object
-    eq_steps : int
-        Number of total equilibration steps
-    prod_steps : int
+    equilibration_steps : int
+        Number of equilibration steps
+    production_steps : int
         Number of production steps
+    ensemble : str
+        Either 'nvt' or 'npt'
     temperature : Quantity
         Target temperature
+    pressure : Quantity
+        Target pressure (only used for NPT)
     data_collection_interval : int
         Interval for collecting volume data
     output_log : str
@@ -160,74 +201,22 @@ def run_complete_simulation(simulation, total_steps=5000, prod_steps=50000,
     # Energy minimization
     minimize_energy(simulation)
     
-    # Equilibration
-    total_equilibration_steps = equilibrate_system(simulation, total_steps, temperature)
+    # Equilibration in specified ensemble
+    equilibrate_system(simulation, equilibration_steps, ensemble, temperature, pressure)
     
     # Production run
-    volumes = run_production(simulation, prod_steps, data_collection_interval, output_log)
+    volumes = run_production(simulation, production_steps, data_collection_interval, output_log)
     
     # Save final structure
     save_final_structure(simulation, output_pdb)
     
-    print(f"Simulation data saved to '{output_log}'")
+    print(f"\nSimulation complete!")
+    print(f"Data saved to '{output_log}'")
+    print(f"Structure saved to '{output_pdb}'")
     
     return {
         'volumes': volumes,
-        'equilibration_steps': total_equilibration_steps,
-        'production_steps': prod_steps
+        'equilibration_steps': equilibration_steps,
+        'production_steps': production_steps,
+        'ensemble': ensemble
     }
-
-
-def run_custom_protocol(simulation, protocol_steps, temperature=300*unit.kelvin):
-    """
-    Run a custom simulation protocol with specified steps.
-    
-    Parameters:
-    -----------
-    simulation : Simulation
-        OpenMM Simulation object
-    protocol_steps : list of dict
-        List of protocol steps, each containing 'type', 'steps', and optional parameters
-        Example: [{'type': 'minimize', 'max_iterations': 100},
-                 {'type': 'equilibrate', 'steps': 1000},
-                 {'type': 'production', 'steps': 5000, 'collect_data': True}]
-    temperature : Quantity
-        Target temperature
-        
-    Returns:
-    --------
-    dict
-        Results from the protocol execution
-    """
-    results = {'volumes': [], 'total_steps': 0}
-    
-    for i, step in enumerate(protocol_steps):
-        step_type = step['type'].lower()
-        
-        if step_type == 'minimize':
-            max_iter = step.get('max_iterations', 100)
-            minimize_energy(simulation, max_iter)
-            
-        elif step_type == 'equilibrate':
-            steps = step['steps']
-            if i == 0:  # First equilibration step
-                simulation.context.setVelocitiesToTemperature(temperature)
-            simulation.step(steps)
-            results['total_steps'] += steps
-            print(f"Equilibration step {i+1}: {steps} steps completed")
-            
-        elif step_type == 'production':
-            steps = step['steps']
-            collect_data = step.get('collect_data', False)
-            interval = step.get('data_interval', 100)
-            
-            if collect_data:
-                volumes = run_production(simulation, steps, interval)
-                results['volumes'].extend(volumes)
-            else:
-                simulation.step(steps)
-            
-            results['total_steps'] += steps
-            print(f"Production step {i+1}: {steps} steps completed")
-    
-    return results
