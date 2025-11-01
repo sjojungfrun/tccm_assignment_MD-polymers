@@ -126,13 +126,14 @@ def density_at_temperature(
     
     return analysis_results
 
-density_at_temperature(
-    n_waters = 50,
-    temperature = 300 * kelvin,
-    pressure = 1 * bar,
-    npt_equilibration_steps = 1000,
-    production_steps = 50000,
-    timestep = 2 * unit.femtoseconds,
-    cutoff = 0.5 * unit.nanometers,
-    reference_density = 1.0  # g/cm³ for water at room temperature
-)
+if __name__ == "__main__":
+    density_at_temperature(
+        n_waters = 50,
+        temperature = 300 * kelvin,
+        pressure = 1 * bar,
+        npt_equilibration_steps = 1000,
+        production_steps = 50000,
+        timestep = 2 * unit.femtoseconds,
+        cutoff = 0.5 * unit.nanometers,
+        reference_density = 1.0  # g/cm³ for water at room temperature
+    )
